@@ -8,11 +8,10 @@ context: <tokens> / <ctx_max> (<pct>%)
 ```
 
 - **Line 1**: model name, followed by ` | effort: <level>` (dim grey).
-- **Line 2**: context usage, colored on a ramp:
-  - light green up to 50k tokens
-  - fades to medium green by 100k
-  - yellow around 120k
-  - red at 180k+, deepening as you approach the model's context window
+- **Line 2**: context usage, colored on a percentage-based ramp:
+  - 0–50%: bright green darkening to dark green
+  - 50–70%: bright yellow darkening to dark amber
+  - 70–100%: bright red darkening to deep red
 - Detects 1M-context models (e.g. `Opus 4.7 [1m]`) and scales the denominator.
 - Reads `effortLevel` from `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`).
 
@@ -45,13 +44,7 @@ No third-party dependencies — standard library only.
    }
    ```
 
-3. Optionally set your effort level in the same file:
-
-   ```json
-   { "effortLevel": "high" }
-   ```
-
-4. Restart Claude Code (or run `/statusline` to refresh).
+3. Restart Claude Code (or run `/statusline` to refresh).
 
 ## Notes
 
