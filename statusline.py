@@ -140,21 +140,6 @@ def main() -> int:
     transcript = payload.get("transcript_path", "") or ""
     model = (payload.get("model") or {}).get("display_name", "") or ""
 
-    # Agent / permission mode (cycled with shift+tab): plan, acceptEdits, etc.
-    mode = (
-        payload.get("permission_mode")
-        or payload.get("permissionMode")
-        or payload.get("mode")
-        or ""
-    )
-    mode_labels = {
-        "default": "normal",
-        "acceptEdits": "accept edits",
-        "bypassPermissions": "bypass permissions",
-        "plan": "plan mode",
-    }
-    mode_display = mode_labels.get(mode, mode)
-
     effort = read_effort()
     ctx_max = context_max_for(model)
     total = latest_usage_total(transcript)
@@ -169,11 +154,22 @@ def main() -> int:
     reset = "\033[0m"
     context_color = context_color_for(total, ctx_max)
 
-    if mode_display:
-        sys.stdout.write(f"{dim}mode: {mode_display}{reset}\n")
-    sys.stdout.write(f"{model}\n")
-    sys.stdout.write(f"{dim}effort: {effort}{reset}\n")
-    sys.stdout.write(f"{context_color}context: {tokens_line}{reset}")
+    import shutil, re
+    width = shutil.get_terminal_size((80, 24)).columns
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+
+    def visible_len(s: str) -> int:
+        return len(ansi_re.sub("", s))
+
+    def row(left: str, right: str) -> str:
+        gap = max(width - visible_len(left) - visible_len(right), 1)
+        return f"{left}{' ' * gap}{right}"
+
+    effort_right = f"{dim}effort: {effort}{reset}"
+    context_right = f"{context_color}context: {tokens_line}{reset}"
+
+    sys.stdout.write(row(model, effort_right) + "\n")
+    sys.stdout.write(row("", context_right))
     sys.stdout.flush()
     return 0
 
