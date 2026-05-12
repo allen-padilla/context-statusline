@@ -165,10 +165,10 @@ def main() -> int:
         gap = max(width - visible_len(left) - visible_len(right), 1)
         return f"{left}{' ' * gap}{right}"
 
-    effort_right = f"{dim}effort: {effort}{reset}"
+    model_line = f"{model} {dim}| effort: {effort}{reset}"
     context_right = f"{context_color}context: {tokens_line}{reset}"
 
-    sys.stdout.write(row(model, effort_right) + "\n")
+    sys.stdout.write(model_line + "\n")
     sys.stdout.write(row("", context_right))
     sys.stdout.flush()
     return 0
