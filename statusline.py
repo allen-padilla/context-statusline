@@ -154,22 +154,11 @@ def main() -> int:
     reset = "\033[0m"
     context_color = context_color_for(total, ctx_max)
 
-    import shutil, re
-    width = shutil.get_terminal_size((80, 24)).columns
-    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
-
-    def visible_len(s: str) -> int:
-        return len(ansi_re.sub("", s))
-
-    def row(left: str, right: str) -> str:
-        gap = max(width - visible_len(left) - visible_len(right), 1)
-        return f"{left}{' ' * gap}{right}"
-
     model_line = f"{model} {dim}| effort: {effort}{reset}"
-    context_right = f"{context_color}context: {tokens_line}{reset}"
+    context_line = f"{context_color}context: {tokens_line}{reset}"
 
     sys.stdout.write(model_line + "\n")
-    sys.stdout.write(row("", context_right))
+    sys.stdout.write(context_line)
     sys.stdout.flush()
     return 0
 

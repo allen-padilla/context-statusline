@@ -4,12 +4,11 @@ A Claude Code statusline script that renders two lines:
 
 ```
 <model display name> | effort: <effortLevel>
-                                                    context: <tokens> / <ctx_max> (<pct>%)
+context: <tokens> / <ctx_max> (<pct>%)
 ```
 
-- **Line 1**: model name on the left, followed by ` | effort: <level>` (dim grey).
-- **Line 2**: context usage right-aligned to the terminal width, colored on a
-  ramp:
+- **Line 1**: model name, followed by ` | effort: <level>` (dim grey).
+- **Line 2**: context usage, colored on a ramp:
   - light green up to 50k tokens
   - fades to medium green by 100k
   - yellow around 120k
@@ -60,5 +59,3 @@ No third-party dependencies — standard library only.
   `ENABLE_VIRTUAL_TERMINAL_PROCESSING`.
 - The script reads only the tail (~256KB) of the transcript JSONL, so it's
   fast even on long sessions.
-- The right-alignment uses `shutil.get_terminal_size()`; if the terminal width
-  isn't detectable it falls back to 80 columns.
