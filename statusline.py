@@ -76,40 +76,34 @@ def latest_usage_total(transcript_path: str) -> int:
 
 
 def context_color_for(total: int, ctx_max: int) -> str:
-    """Piecewise color ramp:
-      0–50k:    light green
-      50k–100k: light green -> medium green
-      100k–120k: medium green -> yellow
-      120k–180k: yellow -> red
-      >180k:    red (deepens slightly toward ctx_max)
+    """Percentage-based color ramp with darkening zones and bright pops at thresholds:
+      0–50%:  bright green darkening to dark green
+      50%:    pops to bright yellow
+      50–70%: bright yellow darkening to dark yellow
+      70%:    pops to bright red
+      70–100%: bright red darkening to deep red
     """
-    stops = [
-        (0,        (144, 238, 144)),  # light green
-        (50_000,   (144, 238, 144)),  # light green
-        (100_000,  (60, 160, 80)),    # medium green
-        (120_000,  (240, 200, 40)),   # yellow
-        (180_000,  (220, 50, 50)),    # red
-    ]
-    if total <= stops[0][0]:
-        r, g, b = stops[0][1]
+    pct = total / max(ctx_max, 1)
+
+    if pct < 0.50:
+        # green zone: bright green -> dark green
+        t = pct / 0.50
+        r = int(80 + (30 - 80) * t)
+        g = int(220 + (100 - 220) * t)
+        b = int(80 + (30 - 80) * t)
+    elif pct < 0.70:
+        # yellow zone: bright yellow -> dark amber
+        t = (pct - 0.50) / 0.20
+        r = int(255 + (180 - 255) * t)
+        g = int(230 + (130 - 230) * t)
+        b = int(0)
     else:
-        for i in range(len(stops) - 1):
-            x0, c0 = stops[i]
-            x1, c1 = stops[i + 1]
-            if total <= x1:
-                t = (total - x0) / (x1 - x0)
-                r = int(c0[0] + (c1[0] - c0[0]) * t)
-                g = int(c0[1] + (c1[1] - c0[1]) * t)
-                b = int(c0[2] + (c1[2] - c0[2]) * t)
-                break
-        else:
-            # past final stop — deepen red toward ctx_max
-            x_last = stops[-1][0]
-            span = max(ctx_max - x_last, 1)
-            t = min(max((total - x_last) / span, 0.0), 1.0)
-            r = int(220 + (140 - 220) * t)
-            g = int(50 + (0 - 50) * t)
-            b = int(50 + (10 - 50) * t)
+        # red zone: bright red -> deep red
+        t = min((pct - 0.70) / 0.30, 1.0)
+        r = int(255 + (139 - 255) * t)
+        g = int(60 + (0 - 60) * t)
+        b = int(60 + (0 - 60) * t)
+
     return f"\033[38;2;{r};{g};{b}m"
 
 
