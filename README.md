@@ -26,19 +26,19 @@ No third-party dependencies — standard library only.
 
 ## Install
 
-1. Clone this repo somewhere stable, e.g. `~/dev/context-statusline`:
+1. Clone this repo into `~/.claude/plugins/context-statusline@1`:
 
    ```sh
-   git clone https://github.com/allen-padilla/context-statusline.git ~/dev/context-statusline
+   git clone https://github.com/allen-padilla/context-statusline.git ~/.claude/plugins/context-statusline@1
    ```
 
-2. Add this to `~/.claude/settings.json` (adjust the path if you cloned elsewhere):
+2. Add this to `~/.claude/settings.json`:
 
    ```json
    {
      "statusLine": {
        "type": "command",
-       "command": "python3 \"$HOME/dev/context-statusline/statusline.py\"",
+       "command": "python3 \"$HOME/.claude/plugins/context-statusline@1/statusline.py\"",
        "padding": 0
      }
    }
