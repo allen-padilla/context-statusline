@@ -1,12 +1,29 @@
 #!/bin/bash
-# Claude Code status line: model, context window, 5h / 7d rate limits, Fable weekly limit.
+# Claude Code status line for macOS: model, context window, 5h / 7d rate limits, Fable weekly limit.
 #
 # Percentages fade within their band from very bright to dark:
 #   green  0-50%    yellow 50-80%    red 80-100%
+# Weekly reset days sit on their own slate-to-cyan ramp that brightens as the reset gets close.
 #
 # Claude Code's statusline JSON only carries the five_hour / seven_day windows, so the
 # Fable bucket comes from the same usage endpoint the /usage command reads. That call is
 # cached and refreshed in the background so the status line never waits on the network.
+#
+# statusline.py is the Linux / Windows port. Keep these constants identical in both files
+# and run check-sync.sh before pushing.
+
+# Band edges (percent) and RGB endpoints, bright -> dark.
+GREEN_MAX=50
+YELLOW_MAX=80
+GREEN_FROM="120 255 120";  GREEN_TO="0 95 0"
+YELLOW_FROM="255 255 110"; YELLOW_TO="165 115 0"
+RED_FROM="255 110 110";    RED_TO="120 0 0"
+# Reset-day ramp, a week out -> at reset.
+RESET_FROM="70 90 120";    RESET_TO="110 220 255"
+RESET_RAMP_SECONDS=604800
+
+USAGE_URL="https://api.anthropic.com/api/oauth/usage"
+USAGE_TTL_SECONDS=60
 
 input=$(cat)
 
@@ -16,8 +33,8 @@ five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 week_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 
-usage_cache="$HOME/.claude/cache/usage-limits.json"
-usage_ttl_seconds=60
+config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+usage_cache="${CLAUDE_STATUSLINE_CACHE:-$config_dir/cache/usage-limits.json}"
 
 refresh_usage() {
   local creds token expires_at now
@@ -31,7 +48,7 @@ refresh_usage() {
     -H "Authorization: Bearer $token" \
     -H "anthropic-beta: oauth-2025-04-20" \
     -H "Content-Type: application/json" \
-    "https://api.anthropic.com/api/oauth/usage" -o "$usage_cache.tmp" \
+    "$USAGE_URL" -o "$usage_cache.tmp" \
     && mv "$usage_cache.tmp" "$usage_cache"
   rm -f "$usage_cache.tmp"
 }
@@ -39,7 +56,7 @@ refresh_usage() {
 usage_is_stale() {
   local mtime
   mtime=$(stat -f %m "$usage_cache" 2>/dev/null) || return 0
-  [ $(( $(date +%s) - mtime )) -ge "$usage_ttl_seconds" ]
+  [ $(( $(date +%s) - mtime )) -ge "$USAGE_TTL_SECONDS" ]
 }
 
 # One refresh at a time; a lock older than 30s is treated as abandoned.
@@ -72,45 +89,34 @@ reset_info() {
   printf "%s %d" "$(date -r "$epoch" +%a 2>/dev/null)" "$(( epoch - $(date +%s) ))"
 }
 
-# $1 = label, $2 = percentage (may be empty), $3 = "weekday seconds-until-reset" (optional).
-# The reset day fades on a cool ramp so it never reads as usage: dim slate a week out,
-# brightening to cyan as the reset gets close.
+# $1 = label, $2 = percentage (may be empty), $3 = "weekday seconds-until-reset" (optional)
 fmt_pct() {
   local label="$1" val="$2" day="${3%% *}" secs_left="${3#* }"
   if [ -z "$val" ]; then
     printf "%s \033[2m--\033[0m" "$label"
     return
   fi
-  awk -v pct="$val" -v label="$label" -v day="$day" -v secs_left="${secs_left:-0}" 'BEGIN {
-    if (pct < 50) {
-      lo=0; hi=50
-      r1=120; g1=255; b1=120   # bright green
-      r2=0;   g2=95;  b2=0     # dark green
-    } else if (pct < 80) {
-      lo=50; hi=80
-      r1=255; g1=255; b1=110   # bright yellow
-      r2=165; g2=115; b2=0     # dark amber
-    } else {
-      lo=80; hi=100
-      r1=255; g1=110; b1=110   # bright red
-      r2=120; g2=0;   b2=0     # dark red
-    }
-    frac = (pct - lo) / (hi - lo)
-    if (frac < 0) frac = 0
-    if (frac > 1) frac = 1
-    r = int(r1 + frac * (r2 - r1) + 0.5)
-    g = int(g1 + frac * (g2 - g1) + 0.5)
-    b = int(b1 + frac * (b2 - b1) + 0.5)
-    printf "%s \033[38;2;%d;%d;%dm%.0f%%\033[0m", label, r, g, b, pct
-    if (day != "") {
-      near = 1 - secs_left / 604800
-      if (near < 0) near = 0
-      if (near > 1) near = 1
-      dr = int(70  + near * (110 - 70)  + 0.5)   # slate  (70,90,120)
-      dg = int(90  + near * (220 - 90)  + 0.5)   #   -> cyan (110,220,255)
-      db = int(120 + near * (255 - 120) + 0.5)
-      printf " \033[38;2;%d;%d;%dm%s\033[0m", dr, dg, db, day
-    }
+  awk -v pct="$val" -v label="$label" -v day="$day" -v secs_left="${secs_left:-0}" \
+      -v green_max="$GREEN_MAX" -v yellow_max="$YELLOW_MAX" \
+      -v green_from="$GREEN_FROM" -v green_to="$GREEN_TO" \
+      -v yellow_from="$YELLOW_FROM" -v yellow_to="$YELLOW_TO" \
+      -v red_from="$RED_FROM" -v red_to="$RED_TO" \
+      -v reset_from="$RESET_FROM" -v reset_to="$RESET_TO" -v reset_ramp="$RESET_RAMP_SECONDS" '
+  function lerp(from, to, frac,   a, b) {
+    split(from, a, " "); split(to, b, " ")
+    return sprintf("%d;%d;%d",
+      int(a[1] + frac * (b[1] - a[1]) + 0.5),
+      int(a[2] + frac * (b[2] - a[2]) + 0.5),
+      int(a[3] + frac * (b[3] - a[3]) + 0.5))
+  }
+  function clamp(x) { return x < 0 ? 0 : (x > 1 ? 1 : x) }
+  BEGIN {
+    if (pct < green_max)       { lo = 0;          hi = green_max;  from = green_from;  to = green_to }
+    else if (pct < yellow_max) { lo = green_max;  hi = yellow_max; from = yellow_from; to = yellow_to }
+    else                       { lo = yellow_max; hi = 100;        from = red_from;    to = red_to }
+    printf "%s \033[38;2;%sm%.0f%%\033[0m", label, lerp(from, to, clamp((pct - lo) / (hi - lo))), pct
+    if (day != "")
+      printf " \033[38;2;%sm%s\033[0m", lerp(reset_from, reset_to, clamp(1 - secs_left / reset_ramp)), day
   }'
 }
 

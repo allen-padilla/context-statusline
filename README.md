@@ -1,6 +1,6 @@
 # context-statusline
 
-A one line Claude Code statusline for macOS. It shows the model, context usage, the 5 hour and 7 day rate limits, and the Fable weekly limit, with the reset day next to the weekly ones.
+A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage, the 5 hour and 7 day rate limits, and the Fable weekly limit, with the reset day next to the weekly ones.
 
 ![statusline showing Fable 5.1, context 8%, 5h 6%, 7d 18% Mon, Fable 37% Mon](statusline.png)
 
@@ -20,7 +20,7 @@ That call is a plain GET against your account, not a model request. It doesn't u
 
 ## Before you use it
 
-1. macOS only. It relies on `security` for the keychain and the BSD versions of `stat` and `date`.
+1. The bash script is macOS only. It relies on `security` for the keychain and the BSD versions of `stat` and `date`. Linux and Windows use `statusline.py`, see below.
 2. You need a Claude Pro or Max subscription. API key, Bedrock, and Vertex users don't get rate limit data at all, so those segments show `--`.
 3. The usage endpoint and its `anthropic-beta` header are not documented. I pulled them out of the Claude Code binary and they can change without notice.
 4. Anthropic's terms restrict using your subscription's OAuth token outside Claude Code. This is a read only call and other usage widgets do the same thing, but it isn't officially supported, so decide for yourself.
@@ -31,7 +31,7 @@ The token is only ever held in memory. It is never written to disk or printed, a
 
 `jq` and `curl`. `curl` ships with macOS and `jq` is `brew install jq`.
 
-## Install
+## Install on macOS
 
 1. Clone this repo into `~/.claude/plugins/data/context-status`:
 
@@ -52,3 +52,29 @@ The token is only ever held in memory. It is never written to disk or printed, a
    ```
 
 3. Restart Claude Code or run `/statusline` to refresh.
+
+## Linux and Windows
+
+`statusline.py` prints the same line with the same colours and only needs `python3` on `PATH`. It reads the token from `~/.claude/.credentials.json` instead of the keychain, which is where Claude Code keeps it on those platforms. On Windows run it from Windows Terminal or another terminal that understands 24 bit colour.
+
+Clone the repo the same way, then use this in `settings.json` instead:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "python3 \"$HOME/.claude/plugins/data/context-status/statusline.py\"",
+    "padding": 0
+  }
+}
+```
+
+I only run the Mac version day to day, so if the Python one breaks on your setup open an issue with the line it printed.
+
+## Keeping the two in sync
+
+The colour bands and thresholds are constants at the top of both files. `check-sync.sh` runs both scripts against the same fixtures and fails if the output differs, so run it before pushing a change to either one.
+
+```sh
+./check-sync.sh
+```
