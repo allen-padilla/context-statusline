@@ -1,6 +1,6 @@
 # context-statusline
 
-A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage as a percentage and as tokens over the window size, the 5 hour and 7 day rate limits, and the Fable weekly limit. The weekly reset day sits after Fable, and once it is under 24 hours away it turns into an HH:MM:SS countdown.
+A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage as a percentage and as tokens over the window size, the 5 hour and 7 day rate limits, and the Fable weekly limit. The weekly reset day sits after Fable, and once it is under 24 hours away it turns into an HH:MM countdown.
 
 ![statusline showing Fable 5.1, Ctx 16% (164k/1M), 5h 22%, 7d 20%, Fable 40% 15:11:00](statusline.png)
 
@@ -10,7 +10,7 @@ Every percentage fades from bright to dark inside its band so you can see where 
 - 50 to 80%: bright yellow down to dark amber
 - 80 to 100%: bright red down to dark red
 
-The reset label is on its own blue ramp. It sits dim slate a week out and brightens to cyan as the reset gets close, so it never gets mixed up with the usage colours. The countdown only re-renders as often as the statusline runs, so with the 60 second `refreshInterval` below it moves once a minute while the window is idle and on every message while you are working. Set `refreshInterval` to `1` if you want it ticking every second, at the cost of running the script once a second in every open window.
+The reset label is on its own blue ramp. It sits dim slate a week out and brightens to cyan as the reset gets close, so it never gets mixed up with the usage colours. The countdown is floored to whole minutes, so it changes exactly when the clock's minute rolls over. Claude Code only re-runs the statusline on events and on its `refreshInterval` timer, and that timer can't be lined up with the clock, so the 10 second interval below is what keeps the flip within a few seconds of the real minute. The usage request is still once a minute because that is tied to the cache age, not the timer.
 
 ## Where the numbers come from
 
@@ -47,14 +47,14 @@ The token is only ever held in memory. It is never written to disk or printed, a
        "type": "command",
        "command": "bash \"$HOME/.claude/plugins/data/context-status/statusline.sh\"",
        "padding": 0,
-       "refreshInterval": 60
+       "refreshInterval": 10
      }
    }
    ```
 
 3. Restart Claude Code or run `/statusline` to refresh.
 
-`refreshInterval` re-runs the script every 60 seconds even when the window is idle. Claude Code otherwise only re-runs it on events like a new message, so without it an idle window keeps showing whatever it last rendered. It matches the cache interval, so every open window shows the same numbers within a minute and it stays one small request per minute no matter how many windows you have open.
+`refreshInterval` re-runs the script every 10 seconds even when the window is idle. Claude Code otherwise only re-runs it on events like a new message, so without it an idle window keeps showing whatever it last rendered. Every open window reads the same 60 second cache, so they all show the same numbers within a minute and it stays one small request per minute no matter how many windows you have open. If the countdown lagging the clock by up to a minute doesn't bother you, 60 is fine here too.
 
 ## Linux and Windows
 
@@ -68,7 +68,7 @@ Clone the repo the same way, then use this in `settings.json` instead:
     "type": "command",
     "command": "python3 \"$HOME/.claude/plugins/data/context-status/statusline.py\"",
     "padding": 0,
-    "refreshInterval": 60
+    "refreshInterval": 10
   }
 }
 ```

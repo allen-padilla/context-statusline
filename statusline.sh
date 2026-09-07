@@ -4,7 +4,7 @@
 # Percentages fade within their band from very bright to dark:
 #   green  0-50%    yellow 50-80%    red 80-100%
 # The weekly reset shows once, after Fable, as a weekday on a slate-to-cyan ramp that brightens
-# as it gets close, and as an HH:MM:SS countdown once it is under 24 hours away.
+# as it gets close, and as an HH:MM countdown once it is under 24 hours away.
 #
 # Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as
 # of that session's last request, so every window comes from the usage endpoint the /usage
@@ -96,7 +96,8 @@ IFS='|' read -r cache_five cache_five_reset cache_week cache_week_reset fable fa
 if [ -n "$cache_five" ]; then five=$cache_five; fi
 if [ -n "$cache_week" ]; then week=$cache_week; week_reset=$cache_week_reset; fi
 
-# "Mon 172800" or "05:12:33 18753" = reset label and seconds until an epoch-seconds reset; empty if unknown.
+# "Mon 172800" or "05:12 18753" = reset label and seconds until an epoch-seconds reset; empty if unknown.
+# The countdown floors to whole minutes so it flips exactly when the clock's minute does.
 reset_info() {
   local epoch="${1%.*}" secs_left remaining
   [ -n "$epoch" ] || return
@@ -105,7 +106,7 @@ reset_info() {
     printf "%s %d" "$(date -r "$epoch" +%a 2>/dev/null)" "$secs_left"
   else
     remaining=$(( secs_left < 0 ? 0 : secs_left ))
-    printf "%02d:%02d:%02d %d" $((remaining / 3600)) $((remaining % 3600 / 60)) $((remaining % 60)) "$secs_left"
+    printf "%02d:%02d %d" $((remaining / 3600)) $((remaining % 3600 / 60)) "$secs_left"
   fi
 }
 

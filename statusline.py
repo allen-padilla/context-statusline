@@ -4,7 +4,7 @@ limits, Fable weekly limit.
 
 Same output as statusline.sh, which is the macOS version. Percentages fade within their
 band from very bright to dark. The weekly reset shows once, after Fable, as a weekday on a
-slate-to-cyan ramp that brightens as it gets close, and as an HH:MM:SS countdown once it is
+slate-to-cyan ramp that brightens as it gets close, and as an HH:MM countdown once it is
 under 24 hours away.
 
 Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as of
@@ -202,8 +202,8 @@ def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> st
         if secs_left >= COUNTDOWN_UNDER_SECONDS:
             reset = datetime.fromtimestamp(reset_epoch).strftime("%a")
         else:
-            remaining = max(0, secs_left)
-            reset = f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}:{remaining % 60:02d}"
+            remaining = max(0, secs_left)  # floored to minutes so it flips with the clock
+            reset = f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}"
         out += f" \033[38;2;{lerp(RESET_FROM, RESET_TO, 1 - secs_left / RESET_RAMP_SECONDS)}m{reset}{RESET}"
     return out
 
