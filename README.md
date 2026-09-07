@@ -1,6 +1,6 @@
 # context-statusline
 
-A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage as a percentage and as tokens over the window size, the 5 hour and 7 day rate limits, and the Fable weekly limit, with the reset day next to the weekly ones.
+A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage as a percentage and as tokens over the window size, the 5 hour and 7 day rate limits, and the Fable weekly limit. The weekly reset day sits after Fable, and once it is under 24 hours away it turns into an HH:MM:SS countdown.
 
 ![statusline showing Fable 5.1, Ctx 15% (152k/1M), 5h 21%, 7d 20% Mon, Fable 40% Mon](statusline.png)
 
@@ -10,7 +10,7 @@ Every percentage fades from bright to dark inside its band so you can see where 
 - 50 to 80%: bright yellow down to dark amber
 - 80 to 100%: bright red down to dark red
 
-The reset day is on its own blue ramp. It sits dim slate a week out and brightens to cyan as the reset gets close, so it never gets mixed up with the usage colours.
+The reset label is on its own blue ramp. It sits dim slate a week out and brightens to cyan as the reset gets close, so it never gets mixed up with the usage colours. The countdown only re-renders as often as the statusline runs, so with the 60 second `refreshInterval` below it moves once a minute while the window is idle and on every message while you are working. Set `refreshInterval` to `1` if you want it ticking every second, at the cost of running the script once a second in every open window.
 
 ## Where the numbers come from
 

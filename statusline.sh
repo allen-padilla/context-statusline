@@ -3,7 +3,8 @@
 #
 # Percentages fade within their band from very bright to dark:
 #   green  0-50%    yellow 50-80%    red 80-100%
-# Weekly reset days sit on their own slate-to-cyan ramp that brightens as the reset gets close.
+# The weekly reset shows once, after Fable, as a weekday on a slate-to-cyan ramp that brightens
+# as it gets close, and as an HH:MM:SS countdown once it is under 24 hours away.
 #
 # Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as
 # of that session's last request, so every window comes from the usage endpoint the /usage
@@ -24,10 +25,14 @@ RED_FROM="255 110 110";    RED_TO="120 0 0"
 RESET_FROM="70 90 120";    RESET_TO="110 220 255"
 RESET_RAMP_SECONDS=604800
 
+COUNTDOWN_UNDER_SECONDS=86400
+
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
 USAGE_TTL_SECONDS=60
 
 input=$(cat)
+# CLAUDE_STATUSLINE_NOW pins the clock so check-sync.sh can compare countdowns.
+now=${CLAUDE_STATUSLINE_NOW:-$(date +%s)}
 
 model=$(echo "$input" | jq -r '.model.display_name // "unknown"')
 ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
@@ -91,21 +96,27 @@ IFS='|' read -r cache_five cache_five_reset cache_week cache_week_reset fable fa
 if [ -n "$cache_five" ]; then five=$cache_five; fi
 if [ -n "$cache_week" ]; then week=$cache_week; week_reset=$cache_week_reset; fi
 
-# "Mon 86400" = local weekday and seconds until an epoch-seconds reset; empty if unknown.
+# "Mon 172800" or "05:12:33 18753" = reset label and seconds until an epoch-seconds reset; empty if unknown.
 reset_info() {
-  local epoch="${1%.*}"
+  local epoch="${1%.*}" secs_left remaining
   [ -n "$epoch" ] || return
-  printf "%s %d" "$(date -r "$epoch" +%a 2>/dev/null)" "$(( epoch - $(date +%s) ))"
+  secs_left=$(( epoch - now ))
+  if [ "$secs_left" -ge "$COUNTDOWN_UNDER_SECONDS" ]; then
+    printf "%s %d" "$(date -r "$epoch" +%a 2>/dev/null)" "$secs_left"
+  else
+    remaining=$(( secs_left < 0 ? 0 : secs_left ))
+    printf "%02d:%02d:%02d %d" $((remaining / 3600)) $((remaining % 3600 / 60)) $((remaining % 60)) "$secs_left"
+  fi
 }
 
-# $1 = label, $2 = percentage (may be empty), $3 = "weekday seconds-until-reset" (optional)
+# $1 = label, $2 = percentage (may be empty), $3 = "reset-label seconds-until-reset" (optional)
 fmt_pct() {
-  local label="$1" val="$2" day="${3%% *}" secs_left="${3#* }"
+  local label="$1" val="$2" reset="${3%% *}" secs_left="${3#* }"
   if [ -z "$val" ]; then
     printf "%s \033[2m--\033[0m" "$label"
     return
   fi
-  awk -v pct="$val" -v label="$label" -v day="$day" -v secs_left="${secs_left:-0}" \
+  awk -v pct="$val" -v label="$label" -v reset="$reset" -v secs_left="${secs_left:-0}" \
       -v green_max="$GREEN_MAX" -v yellow_max="$YELLOW_MAX" \
       -v green_from="$GREEN_FROM" -v green_to="$GREEN_TO" \
       -v yellow_from="$YELLOW_FROM" -v yellow_to="$YELLOW_TO" \
@@ -124,8 +135,8 @@ fmt_pct() {
     else if (pct < yellow_max) { lo = green_max;  hi = yellow_max; from = yellow_from; to = yellow_to }
     else                       { lo = yellow_max; hi = 100;        from = red_from;    to = red_to }
     printf "%s \033[38;2;%sm%.0f%%\033[0m", label, lerp(from, to, clamp((pct - lo) / (hi - lo))), pct
-    if (day != "")
-      printf " \033[38;2;%sm%s\033[0m", lerp(reset_from, reset_to, clamp(1 - secs_left / reset_ramp)), day
+    if (reset != "")
+      printf " \033[38;2;%sm%s\033[0m", lerp(reset_from, reset_to, clamp(1 - secs_left / reset_ramp)), reset
   }'
 }
 
@@ -143,7 +154,7 @@ if [ -n "$ctx_tokens" ] && [ -n "$ctx_size" ]; then
   ctx_str=$(printf '%s \033[2m(%s/%s)\033[0m' "$ctx_str" "$(compact_tokens "$ctx_tokens")" "$(compact_tokens "$ctx_size")")
 fi
 five_str=$(fmt_pct "5h" "$five")
-week_str=$(fmt_pct "7d" "$week" "$(reset_info "$week_reset")")
+week_str=$(fmt_pct "7d" "$week")
 fable_str=$(fmt_pct "Fable" "$fable" "$(reset_info "$fable_reset")")
 
 printf "\033[2m%s\033[0m | %s | %s | %s | %s" "$model" "$ctx_str" "$five_str" "$week_str" "$fable_str"

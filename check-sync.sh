@@ -30,6 +30,7 @@ run_case() {
 }
 
 now=$(date +%s)
+export CLAUDE_STATUSLINE_NOW=$now
 iso_in() { python3 -c 'import sys,datetime;print(datetime.datetime.fromtimestamp(int(sys.argv[1]),datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000+00:00"))' "$1"; }
 # $1 = 5h%, $2 = 7d%, $3 = Fable%, $4 = reset epoch for the weekly windows
 usage_cache() {
@@ -46,13 +47,16 @@ payload() {
 
 day_of() { python3 -c 'import sys,datetime;print(datetime.datetime.fromtimestamp(int(sys.argv[1])).strftime("%a"))' "$1"; }
 
-run_case "cache wins"     "$(payload 7 4 18 $((now + 86400)) 74836 1000000)" "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "Ctx 7% (75k/1M) | 5h 9% | 7d 23% $(day_of $((now + 2 * 86400))) | Fable 37% $(day_of $((now + 2 * 86400)))"
+run_case "cache wins"     "$(payload 7 4 18 $((now + 86400)) 74836 1000000)" "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "Ctx 7% (75k/1M) | 5h 9% | 7d 23% | Fable 37% $(day_of $((now + 2 * 86400)))"
 run_case "band edges"     "$(payload 50 80 100 $((now + 6 * 86400)) 153500 200000)" "$(usage_cache 80 100 0 $((now + 6 * 86400)))" "Ctx 50% (154k/200k)"
 run_case "token sizes"    "$(payload 99 0 0 $((now + 86400)) 1300000 1000000)" "$(usage_cache 0 0 0 $((now + 86400)))" "Ctx 99% (1.3M/1M)"
 run_case "few tokens"     "$(payload 0 0 0 $((now + 86400)) 512 200000)"  "$(usage_cache 0 0 0 $((now + 86400)))" "Ctx 0% (512/200k)"
 run_case "week out"       "$(payload 49.6 79.4 99.5 $((now + 604800)))"  "$(usage_cache 79.4 99.5 100 $((now + 604800)))"
-run_case "reset overdue"  "$(payload 12 12 12 $((now - 60)))"            "$(usage_cache 12 12 12 $((now - 60)))"
-run_case "payload only"   "$(payload 7 4 18 $((now + 86400)))"           '{"limits":[]}' "5h 4% | 7d 18% $(day_of $((now + 86400))) | Fable --"
+run_case "reset overdue"  "$(payload 12 12 12 $((now - 60)))"            "$(usage_cache 12 12 12 $((now - 60)))" "Fable 12% 00:00:00"
+run_case "countdown"      "$(payload 12 12 12 $((now + 18753)))"         "$(usage_cache 12 12 12 $((now + 18753)))" "7d 12% | Fable 12% 05:12:33"
+run_case "just under 24h" "$(payload 12 12 12 $((now + 86399)))"         "$(usage_cache 12 12 12 $((now + 86399)))" "Fable 12% 23:59:59"
+run_case "exactly 24h"    "$(payload 12 12 12 $((now + 86400)))"         "$(usage_cache 12 12 12 $((now + 86400)))" "Fable 12% $(day_of $((now + 86400)))"
+run_case "payload only"   "$(payload 7 4 18 $((now + 86400)))"           '{"limits":[]}' "5h 4% | 7d 18% | Fable --"
 run_case "no rate limits" '{"model":{"display_name":"Sonnet 5"},"context_window":{"used_percentage":null}}' '{}' "Sonnet 5 | Ctx -- | 5h -- | 7d -- | Fable --"
 run_case "empty payload"  '{}'                                            ''
 

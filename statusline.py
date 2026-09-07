@@ -3,7 +3,9 @@
 limits, Fable weekly limit.
 
 Same output as statusline.sh, which is the macOS version. Percentages fade within their
-band from very bright to dark, and weekly reset days sit on their own slate-to-cyan ramp.
+band from very bright to dark. The weekly reset shows once, after Fable, as a weekday on a
+slate-to-cyan ramp that brightens as it gets close, and as an HH:MM:SS countdown once it is
+under 24 hours away.
 
 Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as of
 that session's last request, so every window comes from the usage endpoint the /usage
@@ -34,12 +36,18 @@ RED_FROM, RED_TO = (255, 110, 110), (120, 0, 0)
 # Reset-day ramp, a week out -> at reset.
 RESET_FROM, RESET_TO = (70, 90, 120), (110, 220, 255)
 RESET_RAMP_SECONDS = 604800
+COUNTDOWN_UNDER_SECONDS = 86400
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 USAGE_TTL_SECONDS = 60
 LOCK_STALE_SECONDS = 30
 
 DIM = "\033[2m"
+
+
+def now_seconds() -> int:
+    """CLAUDE_STATUSLINE_NOW pins the clock so check-sync.sh can compare countdowns."""
+    return int(os.environ.get("CLAUDE_STATUSLINE_NOW") or time.time())
 RESET = "\033[0m"
 
 
@@ -190,9 +198,13 @@ def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> st
         lo, hi, start, end = YELLOW_MAX, 100, RED_FROM, RED_TO
     out = f"{label} \033[38;2;{lerp(start, end, (pct - lo) / (hi - lo))}m{pct:.0f}%{RESET}"
     if reset_epoch is not None:
-        day = datetime.fromtimestamp(reset_epoch).strftime("%a")
-        secs_left = reset_epoch - int(time.time())
-        out += f" \033[38;2;{lerp(RESET_FROM, RESET_TO, 1 - secs_left / RESET_RAMP_SECONDS)}m{day}{RESET}"
+        secs_left = reset_epoch - now_seconds()
+        if secs_left >= COUNTDOWN_UNDER_SECONDS:
+            reset = datetime.fromtimestamp(reset_epoch).strftime("%a")
+        else:
+            remaining = max(0, secs_left)
+            reset = f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}:{remaining % 60:02d}"
+        out += f" \033[38;2;{lerp(RESET_FROM, RESET_TO, 1 - secs_left / RESET_RAMP_SECONDS)}m{reset}{RESET}"
     return out
 
 
@@ -219,16 +231,15 @@ def main() -> None:
     limits = payload.get("rate_limits") or {}
     five = (limits.get("five_hour") or {}).get("used_percentage")
     week = (limits.get("seven_day") or {}).get("used_percentage")
-    week_reset = (limits.get("seven_day") or {}).get("resets_at")
 
     cache = usage_cache_path()
     cache.parent.mkdir(parents=True, exist_ok=True)
     maybe_refresh_usage(cache)
-    (cache_five, _), (cache_week, cache_week_reset), (fable, fable_reset) = cached_windows(cache)
+    (cache_five, _), (cache_week, _), (fable, fable_reset) = cached_windows(cache)
     if cache_five is not None:
         five = cache_five
     if cache_week is not None:
-        week, week_reset = cache_week, cache_week_reset
+        week = cache_week
 
     if os.name == "nt":
         sys.stdout.reconfigure(newline="")
@@ -239,7 +250,7 @@ def main() -> None:
             if ctx_tokens is not None and ctx_size is not None else ""
         ),
         fmt_pct("5h", five),
-        fmt_pct("7d", week, int(week_reset) if week_reset is not None else None),
+        fmt_pct("7d", week),
         fmt_pct("Fable", fable, fable_reset),
     ]))
     sys.stdout.flush()
