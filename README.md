@@ -14,18 +14,21 @@ The reset label is on its own blue ramp. It sits dim slate a week out and bright
 
 ## Where the numbers come from
 
-Claude Code hands the statusline a JSON payload with the context usage and the 5 hour and 7 day windows. Those two only update after that session's own requests, so an idle session drifts from the others, and the payload has no Fable window at all. The script reads all 3 windows from the same usage endpoint the `/usage` command uses instead. It pulls your Claude Code OAuth token out of the macOS keychain, calls `api.anthropic.com/api/oauth/usage`, and caches the response in `~/.claude/cache/usage-limits.json` for 60 seconds. Every session reads that one file, so they all print the same numbers on their next render. The refresh runs in the background so the statusline never waits on the network. If the cache is missing the 5h and 7d segments fall back to the payload and Fable shows `--` until the next refresh.
+Claude Code hands the statusline a JSON payload with the context usage and the 5 hour and 7 day windows. Those two only update after that session's own requests, so an idle session drifts from the others, and the payload has no Fable window at all. Out of the box the script only reads that payload, so 5h and 7d are whatever this session last saw and Fable shows `--`.
+
+Set `CONTEXT_STATUSLINE_USAGE=1` and it reads all 3 windows from the same usage endpoint the `/usage` command uses instead. It pulls your Claude Code OAuth token out of the macOS keychain, calls `api.anthropic.com/api/oauth/usage`, and caches the response in `~/.claude/cache/usage-limits.json` for 60 seconds. Every session reads that one file, so they all print the same numbers on their next render. The refresh runs in the background so the statusline never waits on the network. If the cache is missing the 5h and 7d segments fall back to the payload and Fable shows `--` until the next refresh.
 
 That call is a plain GET against your account, not a model request. It doesn't use tokens or count against your rate limits.
 
-## Before you use it
+## Before you turn the usage endpoint on
 
-1. The bash script is macOS only. It relies on `security` for the keychain and the BSD versions of `stat` and `date`. Linux and Windows use `statusline.py`, see below.
-2. You need a Claude Pro or Max subscription. API key, Bedrock, and Vertex users don't get rate limit data at all, so those segments show `--`.
-3. The usage endpoint and its `anthropic-beta` header are not documented. I pulled them out of the Claude Code binary and they can change without notice.
-4. Anthropic's terms restrict using your subscription's OAuth token outside Claude Code. This is a read only call and other usage widgets do the same thing, but it isn't officially supported, so decide for yourself.
+1. You need a Claude Pro or Max subscription. API key, Bedrock, and Vertex accounts don't have rate limit data, so if `ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_BEDROCK`, or `CLAUDE_CODE_USE_VERTEX` is set the script never reads the keychain and those segments show `--`.
+2. The usage endpoint and its `anthropic-beta` header are not documented. I pulled them out of the Claude Code binary, last checked against 2.1.263, and they can change without notice. The cache is only replaced when the response still has the `five_hour` and `seven_day` windows, so a changed endpoint leaves the old numbers in place. Once the cache is more than 10 minutes old those 3 segments go dim, so you can tell stale numbers from live ones.
+3. Anthropic's terms restrict using your subscription's OAuth token outside Claude Code. This is a read only call and other usage widgets do the same thing, but it isn't officially supported, so it stays off until you turn it on.
 
-The token is only ever held in memory. It is never written to disk or printed, and the cache file holds just the usage response.
+The token is only ever held in memory. It goes to `curl` on stdin so it never shows in the process list, it is never written to disk or printed, and the cache file holds just the usage response with `600` permissions.
+
+The bash script is macOS only. It relies on `security` for the keychain and the BSD versions of `stat` and `date`. Linux and Windows use `statusline.py`, see below.
 
 ## Requirements
 
@@ -52,6 +55,16 @@ The token is only ever held in memory. It is never written to disk or printed, a
    }
    ```
 
+   To get the shared 5h and 7d numbers and the Fable segment, add the flag to the `env` block of the same file once you have read the section above. Claude Code passes it to the statusline on every platform.
+
+   ```json
+   {
+     "env": {
+       "CONTEXT_STATUSLINE_USAGE": "1"
+     }
+   }
+   ```
+
 3. Restart Claude Code or run `/statusline` to refresh.
 
 `refreshInterval` re-runs the script every 10 seconds even when the window is idle. Claude Code otherwise only re-runs it on events like a new message, so without it an idle window keeps showing whatever it last rendered. Every open window reads the same 60 second cache, so they all show the same numbers within a minute and it stays one small request per minute no matter how many windows you have open. If the countdown lagging the clock by up to a minute doesn't bother you, 60 is fine here too.
@@ -60,7 +73,7 @@ The token is only ever held in memory. It is never written to disk or printed, a
 
 `statusline.py` prints the same line with the same colours and only needs `python3` on `PATH`. It reads the token from `~/.claude/.credentials.json` instead of the keychain, which is where Claude Code keeps it on those platforms. On Windows run it from Windows Terminal or another terminal that understands 24 bit colour.
 
-Clone the repo the same way, then use this in `settings.json` instead:
+Clone the repo the same way, then use this in `settings.json` instead. The `env` flag above works the same way here.
 
 ```json
 {

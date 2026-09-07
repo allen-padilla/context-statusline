@@ -8,10 +8,12 @@ slate-to-cyan ramp that brightens as it gets close, and as an HH:MM countdown on
 under 24 hours away.
 
 Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as of
-that session's last request, so every window comes from the usage endpoint the /usage
-command reads instead. That call is cached in one shared file and refreshed in a detached
-process, so every session prints the same numbers and never waits on the network. The
-payload values are the fallback while the cache is missing.
+that session's last request. With CONTEXT_STATUSLINE_USAGE=1 every window comes from the
+usage endpoint the /usage command reads instead. That call is cached in one shared file and
+refreshed in a detached process, so every session prints the same numbers and never waits on
+the network. The payload values are the fallback while the cache is missing, and cached
+numbers go dim once the cache is old enough that the endpoint has probably stopped answering.
+Without the flag the script only reads the payload and never touches the credentials file.
 
 Keep the constants below identical to statusline.sh and run check-sync.sh before pushing.
 """
@@ -21,6 +23,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from datetime import datetime, timezone
@@ -38,8 +41,11 @@ RESET_FROM, RESET_TO = (70, 90, 120), (110, 220, 255)
 RESET_RAMP_SECONDS = 604800
 COUNTDOWN_UNDER_SECONDS = 86400
 
+# Undocumented. Pulled from the Claude Code binary, last checked against 2.1.263.
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+USAGE_BETA = "oauth-2025-04-20"
 USAGE_TTL_SECONDS = 60
+USAGE_STALE_SECONDS = 600
 LOCK_STALE_SECONDS = 30
 
 DIM = "\033[2m"
@@ -58,6 +64,15 @@ def config_dir() -> Path:
 def usage_cache_path() -> Path:
     override = os.environ.get("CLAUDE_STATUSLINE_CACHE")
     return Path(override) if override else config_dir() / "cache" / "usage-limits.json"
+
+
+def usage_enabled() -> bool:
+    """The endpoint is opt-in. API key, Bedrock, and Vertex accounts have no subscription
+    limits, so for them the credentials are never read even with the flag set."""
+    if os.environ.get("CONTEXT_STATUSLINE_USAGE") != "1":
+        return False
+    return not any(os.environ.get(name) for name in
+                   ("ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"))
 
 
 def read_oauth() -> dict:
@@ -87,20 +102,26 @@ def refresh_usage(cache: Path) -> None:
         return
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {token}",
-        "anthropic-beta": "oauth-2025-04-20",
+        "anthropic-beta": USAGE_BETA,
         "Content-Type": "application/json",
     })
-    tmp = cache.with_suffix(".json.tmp")
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             body = response.read()
-        json.loads(body)
-        tmp.write_bytes(body)
-        os.replace(tmp, cache)
+        usage = json.loads(body)
     except (OSError, ValueError):
-        pass
-    finally:
-        tmp.unlink(missing_ok=True)
+        return
+    # Only replace the cache when the body still has the two windows the script reads, so a
+    # changed endpoint leaves the old numbers in place instead of blanking them.
+    if not (isinstance(usage, dict) and "five_hour" in usage and "seven_day" in usage):
+        return
+    fd, tmp = tempfile.mkstemp(prefix=cache.name + ".", dir=cache.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(body)
+        os.replace(tmp, cache)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def age_seconds(path: Path) -> float | None:
@@ -187,7 +208,8 @@ def compact_tokens(n: int) -> str:
     return f"{n}"
 
 
-def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> str:
+def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None, dim: str = "") -> str:
+    """dim is "2;" to dim the whole segment, which the cached windows use once the cache is stale."""
     if pct is None:
         return f"{label} {DIM}--{RESET}"
     if pct < GREEN_MAX:
@@ -196,7 +218,7 @@ def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> st
         lo, hi, start, end = GREEN_MAX, YELLOW_MAX, YELLOW_FROM, YELLOW_TO
     else:
         lo, hi, start, end = YELLOW_MAX, 100, RED_FROM, RED_TO
-    out = f"{label} \033[38;2;{lerp(start, end, (pct - lo) / (hi - lo))}m{pct:.0f}%{RESET}"
+    out = f"{label} \033[{dim}38;2;{lerp(start, end, (pct - lo) / (hi - lo))}m{pct:.0f}%{RESET}"
     if reset_epoch is not None:
         secs_left = reset_epoch - now_seconds()
         if secs_left >= COUNTDOWN_UNDER_SECONDS:
@@ -204,7 +226,7 @@ def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> st
         else:
             remaining = max(0, secs_left)  # floored to minutes so it flips with the clock
             reset = f"{remaining // 3600:02d}:{remaining % 3600 // 60:02d}"
-        out += f" \033[38;2;{lerp(RESET_FROM, RESET_TO, 1 - secs_left / RESET_RAMP_SECONDS)}m{reset}{RESET}"
+        out += f" \033[{dim}38;2;{lerp(RESET_FROM, RESET_TO, 1 - secs_left / RESET_RAMP_SECONDS)}m{reset}{RESET}"
     return out
 
 
@@ -232,14 +254,19 @@ def main() -> None:
     five = (limits.get("five_hour") or {}).get("used_percentage")
     week = (limits.get("seven_day") or {}).get("used_percentage")
 
-    cache = usage_cache_path()
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    maybe_refresh_usage(cache)
-    (cache_five, _), (cache_week, _), (fable, fable_reset) = cached_windows(cache)
-    if cache_five is not None:
-        five = cache_five
-    if cache_week is not None:
-        week = cache_week
+    fable, fable_reset, usage_dim = None, None, ""
+    if usage_enabled():
+        cache = usage_cache_path()
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        maybe_refresh_usage(cache)
+        (cache_five, _), (cache_week, _), (fable, fable_reset) = cached_windows(cache)
+        if cache_five is not None:
+            five = cache_five
+        if cache_week is not None:
+            week = cache_week
+        cache_age = age_seconds(cache)
+        if (cache_five, cache_week, fable) != (None, None, None) and (cache_age is None or cache_age >= USAGE_STALE_SECONDS):
+            usage_dim = "2;"
 
     if os.name == "nt":
         sys.stdout.reconfigure(newline="")
@@ -249,9 +276,9 @@ def main() -> None:
             f" {DIM}({compact_tokens(int(ctx_tokens))}/{compact_tokens(int(ctx_size))}){RESET}"
             if ctx_tokens is not None and ctx_size is not None else ""
         ),
-        fmt_pct("5h", five),
-        fmt_pct("7d", week),
-        fmt_pct("Fable", fable, fable_reset),
+        fmt_pct("5h", five, dim=usage_dim),
+        fmt_pct("7d", week, dim=usage_dim),
+        fmt_pct("Fable", fable, fable_reset, usage_dim),
     ]))
     sys.stdout.flush()
 

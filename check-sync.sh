@@ -7,13 +7,22 @@ cd "$(dirname "$0")"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export CLAUDE_STATUSLINE_CACHE="$work/usage.json"
+export CONTEXT_STATUSLINE_USAGE=1
 failed=0
+# Set to a number of seconds to back-date the cache for the next case. The lock dir stops
+# either script from spawning a real refresh when it sees the old cache.
+age_cache=""
 
 # $1 = case name, $2 = stdin JSON, $3 = cached usage JSON, $4 = text the line must contain (ANSI stripped)
 run_case() {
   local name="$1" expect="${4:-}"
   printf '%s' "$2" > "$work/input.json"
   printf '%s' "$3" > "$CLAUDE_STATUSLINE_CACHE"
+  rm -rf "$CLAUDE_STATUSLINE_CACHE.lock"
+  if [ -n "$age_cache" ]; then
+    mkdir "$CLAUDE_STATUSLINE_CACHE.lock"
+    python3 -c 'import os,sys,time;t=time.time()-int(sys.argv[2]);os.utime(sys.argv[1],(t,t))' "$CLAUDE_STATUSLINE_CACHE" "$age_cache"
+  fi
   bash statusline.sh < "$work/input.json" > "$work/sh.txt"
   python3 statusline.py < "$work/input.json" > "$work/py.txt"
   if cmp -s "$work/sh.txt" "$work/py.txt"; then
@@ -59,5 +68,18 @@ run_case "exactly 24h"    "$(payload 12 12 12 $((now + 86400)))"         "$(usag
 run_case "payload only"   "$(payload 7 4 18 $((now + 86400)))"           '{"limits":[]}' "5h 4% | 7d 18% | Fable --"
 run_case "no rate limits" '{"model":{"display_name":"Sonnet 5"},"context_window":{"used_percentage":null}}' '{}' "Sonnet 5 | Ctx -- | 5h -- | 7d -- | Fable --"
 run_case "empty payload"  '{}'                                            ''
+
+age_cache=3600
+run_case "stale cache"    "$(payload 7 4 18 $((now + 86400)))"           "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "5h 9% | 7d 23% | Fable 37%"
+if ! grep -q $'\x1b\[2;38;2;' "$work/sh.txt"; then printf 'WRONG stale cache\n  cached segments are not dimmed\n'; failed=1; fi
+age_cache=""
+run_case "fresh cache"    "$(payload 7 4 18 $((now + 86400)))"           "$(usage_cache 9 23 37 $((now + 2 * 86400)))"
+if grep -q $'\x1b\[2;38;2;' "$work/sh.txt"; then printf 'WRONG fresh cache\n  segments are dimmed\n'; failed=1; fi
+
+unset CONTEXT_STATUSLINE_USAGE
+run_case "usage off"      "$(payload 7 4 18 $((now + 86400)))"           "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "5h 4% | 7d 18% | Fable --"
+export CONTEXT_STATUSLINE_USAGE=1 ANTHROPIC_API_KEY=sk-test
+run_case "api key"        "$(payload 7 4 18 $((now + 86400)))"           "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "5h 4% | 7d 18% | Fable --"
+unset ANTHROPIC_API_KEY
 
 exit $failed
