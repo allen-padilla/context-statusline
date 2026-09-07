@@ -14,7 +14,7 @@ The reset day is on its own blue ramp. It sits dim slate a week out and brighten
 
 ## Where the numbers come from
 
-Claude Code hands the statusline a JSON payload with the context usage and the 5 hour and 7 day windows. It doesn't include the per model Fable window, so the script reads that from the same usage endpoint the `/usage` command uses. It pulls your Claude Code OAuth token out of the macOS keychain, calls `api.anthropic.com/api/oauth/usage`, and caches the response in `~/.claude/cache/usage-limits.json` for 60 seconds. The refresh runs in the background so the statusline never waits on the network. If the call fails the Fable segment shows `--` until the next refresh.
+Claude Code hands the statusline a JSON payload with the context usage and the 5 hour and 7 day windows. Those two only update after that session's own requests, so an idle session drifts from the others, and the payload has no Fable window at all. The script reads all 3 windows from the same usage endpoint the `/usage` command uses instead. It pulls your Claude Code OAuth token out of the macOS keychain, calls `api.anthropic.com/api/oauth/usage`, and caches the response in `~/.claude/cache/usage-limits.json` for 30 seconds. Every session reads that one file, so they all print the same numbers on their next render. The refresh runs in the background so the statusline never waits on the network. If the cache is missing the 5h and 7d segments fall back to the payload and Fable shows `--` until the next refresh.
 
 That call is a plain GET against your account, not a model request. It doesn't use tokens or count against your rate limits.
 

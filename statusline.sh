@@ -5,9 +5,11 @@
 #   green  0-50%    yellow 50-80%    red 80-100%
 # Weekly reset days sit on their own slate-to-cyan ramp that brightens as the reset gets close.
 #
-# Claude Code's statusline JSON only carries the five_hour / seven_day windows, so the
-# Fable bucket comes from the same usage endpoint the /usage command reads. That call is
-# cached and refreshed in the background so the status line never waits on the network.
+# Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as
+# of that session's last request, so every window comes from the usage endpoint the /usage
+# command reads instead. That call is cached in one shared file and refreshed in the
+# background, so every session prints the same numbers and never waits on the network.
+# The payload values are the fallback while the cache is missing.
 #
 # statusline.py is the Linux / Windows port. Keep these constants identical in both files
 # and run check-sync.sh before pushing.
@@ -23,7 +25,7 @@ RESET_FROM="70 90 120";    RESET_TO="110 220 255"
 RESET_RAMP_SECONDS=604800
 
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
-USAGE_TTL_SECONDS=60
+USAGE_TTL_SECONDS=30
 
 input=$(cat)
 
@@ -74,13 +76,18 @@ maybe_refresh_usage() {
 
 mkdir -p "$(dirname "$usage_cache")"
 maybe_refresh_usage
-fable_window=$(jq -r '
-  (.limits // [])[]
-  | select(.kind == "weekly_scoped" and ((.scope.model.display_name // "") | ascii_downcase) == "fable")
-  | "\(.percent // "") \((.resets_at // "") | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | try fromdateiso8601 catch "")"' \
-  "$usage_cache" 2>/dev/null | head -n1)
-fable=${fable_window%% *}
-fable_reset=${fable_window#* }
+# "5h% | 5h reset | 7d% | 7d reset | Fable% | Fable reset", resets as epoch seconds, blanks when unknown.
+IFS='|' read -r cache_five cache_five_reset cache_week cache_week_reset fable fable_reset <<< "$(jq -r '
+  def epoch: (. // "") | sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | (try fromdateiso8601 catch "");
+  def pct: if . == null then "" else . end;
+  (first((.limits // [])[]
+    | select(.kind == "weekly_scoped" and ((.scope.model.display_name // "") | ascii_downcase) == "fable")) // {}) as $fable
+  | [ (.five_hour.utilization | pct), (.five_hour.resets_at | epoch),
+      (.seven_day.utilization | pct), (.seven_day.resets_at | epoch),
+      ($fable.percent | pct), ($fable.resets_at | epoch) ]
+  | join("|")' "$usage_cache" 2>/dev/null)"
+if [ -n "$cache_five" ]; then five=$cache_five; fi
+if [ -n "$cache_week" ]; then week=$cache_week; week_reset=$cache_week_reset; fi
 
 # "Mon 86400" = local weekday and seconds until an epoch-seconds reset; empty if unknown.
 reset_info() {

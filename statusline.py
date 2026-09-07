@@ -5,9 +5,11 @@ limits, Fable weekly limit.
 Same output as statusline.sh, which is the macOS version. Percentages fade within their
 band from very bright to dark, and weekly reset days sit on their own slate-to-cyan ramp.
 
-Claude Code's statusline JSON only carries the five_hour / seven_day windows, so the Fable
-bucket comes from the same usage endpoint the /usage command reads. That call is cached
-and refreshed in a detached process so the status line never waits on the network.
+Claude Code's statusline JSON only carries the five_hour / seven_day windows, and only as of
+that session's last request, so every window comes from the usage endpoint the /usage
+command reads instead. That call is cached in one shared file and refreshed in a detached
+process, so every session prints the same numbers and never waits on the network. The
+payload values are the fallback while the cache is missing.
 
 Keep the constants below identical to statusline.sh and run check-sync.sh before pushing.
 """
@@ -21,6 +23,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Tuple
 
 # Band edges (percent) and RGB endpoints, bright -> dark.
 GREEN_MAX = 50
@@ -33,7 +36,7 @@ RESET_FROM, RESET_TO = (70, 90, 120), (110, 220, 255)
 RESET_RAMP_SECONDS = 604800
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
-USAGE_TTL_SECONDS = 60
+USAGE_TTL_SECONDS = 30
 LOCK_STALE_SECONDS = 30
 
 DIM = "\033[2m"
@@ -132,21 +135,33 @@ def parse_iso_utc(value: str) -> int | None:
         return None
 
 
-def fable_window(cache: Path) -> tuple[float | None, int | None]:
+Window = Tuple[Optional[float], Optional[int]]
+
+
+def window(entry: dict | None, percent_key: str) -> Window:
+    entry = entry if isinstance(entry, dict) else {}
+    percent = entry.get(percent_key)
+    return (float(percent) if percent is not None else None), parse_iso_utc(entry.get("resets_at") or "")
+
+
+def cached_windows(cache: Path) -> Tuple[Window, Window, Window]:
+    """(5h, 7d, Fable) from the usage cache; each is (None, None) when absent."""
     try:
-        limits = json.loads(cache.read_text(encoding="utf-8")).get("limits") or []
+        usage = json.loads(cache.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return None, None
-    for limit in limits:
-        if not isinstance(limit, dict) or limit.get("kind") != "weekly_scoped":
-            continue
-        name = ((limit.get("scope") or {}).get("model") or {}).get("display_name") or ""
-        if name.lower() != "fable":
-            continue
-        percent = limit.get("percent")
-        resets = parse_iso_utc(limit.get("resets_at") or "")
-        return (float(percent) if percent is not None else None), resets
-    return None, None
+        usage = {}
+    if not isinstance(usage, dict):
+        usage = {}
+    fable = next((
+        limit for limit in usage.get("limits") or []
+        if isinstance(limit, dict) and limit.get("kind") == "weekly_scoped"
+        and ((((limit.get("scope") or {}).get("model") or {}).get("display_name") or "").lower() == "fable")
+    ), None)
+    return (
+        window(usage.get("five_hour"), "utilization"),
+        window(usage.get("seven_day"), "utilization"),
+        window(fable, "percent"),
+    )
 
 
 def lerp(start: tuple[int, int, int], end: tuple[int, int, int], frac: float) -> str:
@@ -197,7 +212,11 @@ def main() -> None:
     cache = usage_cache_path()
     cache.parent.mkdir(parents=True, exist_ok=True)
     maybe_refresh_usage(cache)
-    fable, fable_reset = fable_window(cache)
+    (cache_five, _), (cache_week, cache_week_reset), (fable, fable_reset) = cached_windows(cache)
+    if cache_five is not None:
+        five = cache_five
+    if cache_week is not None:
+        week, week_reset = cache_week, cache_week_reset
 
     if os.name == "nt":
         sys.stdout.reconfigure(newline="")
