@@ -55,14 +55,10 @@ The bash script is macOS only. It relies on `security` for the keychain and the 
    }
    ```
 
-   To get the shared 5h and 7d numbers and the Fable segment, add the flag to the `env` block of the same file once you have read the section above. Claude Code passes it to the statusline on every platform.
+   To get the shared 5h and 7d numbers and the Fable segment, put the flag in front of the command once you have read the section above:
 
    ```json
-   {
-     "env": {
-       "CONTEXT_STATUSLINE_USAGE": "1"
-     }
-   }
+   "command": "CONTEXT_STATUSLINE_USAGE=1 bash \"$HOME/.claude/plugins/data/context-status/statusline.sh\""
    ```
 
 3. Restart Claude Code or run `/statusline` to refresh.
@@ -73,7 +69,7 @@ The bash script is macOS only. It relies on `security` for the keychain and the 
 
 `statusline.py` prints the same line with the same colours and only needs `python3` on `PATH`. It reads the token from `~/.claude/.credentials.json` instead of the keychain, which is where Claude Code keeps it on those platforms. On Windows run it from Windows Terminal or another terminal that understands 24 bit colour.
 
-Clone the repo the same way, then use this in `settings.json` instead. The `env` flag above works the same way here.
+Clone the repo the same way, then use this in `settings.json` instead. The flag goes in front of the command the same way. Claude Code runs the command through Git Bash on Windows, and if you don't have Git Bash it uses PowerShell, where the prefix is `$env:CONTEXT_STATUSLINE_USAGE='1';` instead.
 
 ```json
 {
