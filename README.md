@@ -1,6 +1,6 @@
 # context-statusline
 
-A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage, the 5 hour and 7 day rate limits, and the Fable weekly limit, with the reset day next to the weekly ones.
+A one line Claude Code statusline, built for macOS with a Python port for Linux and Windows. It shows the model, context usage as a percentage and as tokens over the window size, the 5 hour and 7 day rate limits, and the Fable weekly limit, with the reset day next to the weekly ones.
 
 ![statusline showing Fable 5.1, context 8%, 5h 6%, 7d 18% Mon, Fable 37% Mon](statusline.png)
 

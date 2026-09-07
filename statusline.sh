@@ -31,6 +31,8 @@ input=$(cat)
 
 model=$(echo "$input" | jq -r '.model.display_name // "unknown"')
 ctx_used=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+ctx_tokens=$(echo "$input" | jq -r '.context_window.total_input_tokens // empty')
+ctx_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
 five=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 week=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 week_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
@@ -127,7 +129,19 @@ fmt_pct() {
   }'
 }
 
+# 74836 -> 75k, 1000000 -> 1M, 1300000 -> 1.3M
+compact_tokens() {
+  awk -v n="$1" 'BEGIN {
+    if (n >= 1000000) { m = n / 1000000; if (m == int(m)) printf "%dM", m; else printf "%.1fM", m }
+    else if (n >= 1000) printf "%dk", int(n / 1000 + 0.5)
+    else printf "%d", n
+  }'
+}
+
 ctx_str=$(fmt_pct "Ctx" "$ctx_used")
+if [ -n "$ctx_tokens" ] && [ -n "$ctx_size" ]; then
+  ctx_str=$(printf '%s \033[2m(%s/%s)\033[0m' "$ctx_str" "$(compact_tokens "$ctx_tokens")" "$(compact_tokens "$ctx_size")")
+fi
 five_str=$(fmt_pct "5h" "$five")
 week_str=$(fmt_pct "7d" "$week" "$(reset_info "$week_reset")")
 fable_str=$(fmt_pct "Fable" "$fable" "$(reset_info "$fable_reset")")

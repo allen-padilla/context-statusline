@@ -37,14 +37,19 @@ usage_cache() {
   printf '{"five_hour":{"utilization":%s,"resets_at":"%s"},"seven_day":{"utilization":%s,"resets_at":"%s"},"limits":[{"kind":"session","percent":%s},{"kind":"weekly_all","percent":%s},{"kind":"weekly_scoped","scope":{"model":{"display_name":"Fable"}},"percent":%s,"resets_at":"%s"}]}' \
     "$1" "$(iso_in $((now + 3600)))" "$2" "$reset" "$1" "$2" "$3" "$reset"
 }
+# $5 = total input tokens, $6 = context window size (both optional)
 payload() {
-  printf '{"model":{"display_name":"Fable 5.1"},"context_window":{"used_percentage":%s},"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}' "$1" "$2" "$((now + 3600))" "$3" "$4"
+  local ctx_extra=""
+  [ -n "${5:-}" ] && ctx_extra=$(printf ',"total_input_tokens":%s,"context_window_size":%s' "$5" "$6")
+  printf '{"model":{"display_name":"Fable 5.1"},"context_window":{"used_percentage":%s'"$ctx_extra"'},"rate_limits":{"five_hour":{"used_percentage":%s,"resets_at":%s},"seven_day":{"used_percentage":%s,"resets_at":%s}}}' "$1" "$2" "$((now + 3600))" "$3" "$4"
 }
 
 day_of() { python3 -c 'import sys,datetime;print(datetime.datetime.fromtimestamp(int(sys.argv[1])).strftime("%a"))' "$1"; }
 
-run_case "cache wins"     "$(payload 7 4 18 $((now + 86400)))"           "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "Ctx 7% | 5h 9% | 7d 23% $(day_of $((now + 2 * 86400))) | Fable 37% $(day_of $((now + 2 * 86400)))"
-run_case "band edges"     "$(payload 50 80 100 $((now + 6 * 86400)))"    "$(usage_cache 80 100 0 $((now + 6 * 86400)))"
+run_case "cache wins"     "$(payload 7 4 18 $((now + 86400)) 74836 1000000)" "$(usage_cache 9 23 37 $((now + 2 * 86400)))" "Ctx 7% (75k/1M) | 5h 9% | 7d 23% $(day_of $((now + 2 * 86400))) | Fable 37% $(day_of $((now + 2 * 86400)))"
+run_case "band edges"     "$(payload 50 80 100 $((now + 6 * 86400)) 153500 200000)" "$(usage_cache 80 100 0 $((now + 6 * 86400)))" "Ctx 50% (154k/200k)"
+run_case "token sizes"    "$(payload 99 0 0 $((now + 86400)) 1300000 1000000)" "$(usage_cache 0 0 0 $((now + 86400)))" "Ctx 99% (1.3M/1M)"
+run_case "few tokens"     "$(payload 0 0 0 $((now + 86400)) 512 200000)"  "$(usage_cache 0 0 0 $((now + 86400)))" "Ctx 0% (512/200k)"
 run_case "week out"       "$(payload 49.6 79.4 99.5 $((now + 604800)))"  "$(usage_cache 79.4 99.5 100 $((now + 604800)))"
 run_case "reset overdue"  "$(payload 12 12 12 $((now - 60)))"            "$(usage_cache 12 12 12 $((now - 60)))"
 run_case "payload only"   "$(payload 7 4 18 $((now + 86400)))"           '{"limits":[]}' "5h 4% | 7d 18% $(day_of $((now + 86400))) | Fable --"

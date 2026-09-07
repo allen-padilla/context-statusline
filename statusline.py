@@ -169,6 +169,16 @@ def lerp(start: tuple[int, int, int], end: tuple[int, int, int], frac: float) ->
     return ";".join(str(int(a + frac * (b - a) + 0.5)) for a, b in zip(start, end))
 
 
+def compact_tokens(n: int) -> str:
+    """74836 -> 75k, 1000000 -> 1M, 1300000 -> 1.3M"""
+    if n >= 1_000_000:
+        m = n / 1_000_000
+        return f"{int(m)}M" if m == int(m) else f"{m:.1f}M"
+    if n >= 1000:
+        return f"{int(n / 1000 + 0.5)}k"
+    return f"{n}"
+
+
 def fmt_pct(label: str, pct: float | None, reset_epoch: int | None = None) -> str:
     if pct is None:
         return f"{label} {DIM}--{RESET}"
@@ -203,7 +213,9 @@ def main() -> None:
     except ValueError:
         payload = {}
     model = (payload.get("model") or {}).get("display_name") or "unknown"
-    ctx_used = (payload.get("context_window") or {}).get("used_percentage")
+    context = payload.get("context_window") or {}
+    ctx_used = context.get("used_percentage")
+    ctx_tokens, ctx_size = context.get("total_input_tokens"), context.get("context_window_size")
     limits = payload.get("rate_limits") or {}
     five = (limits.get("five_hour") or {}).get("used_percentage")
     week = (limits.get("seven_day") or {}).get("used_percentage")
@@ -222,7 +234,10 @@ def main() -> None:
         sys.stdout.reconfigure(newline="")
     sys.stdout.write(" | ".join([
         f"{DIM}{model}{RESET}",
-        fmt_pct("Ctx", ctx_used),
+        fmt_pct("Ctx", ctx_used) + (
+            f" {DIM}({compact_tokens(int(ctx_tokens))}/{compact_tokens(int(ctx_size))}){RESET}"
+            if ctx_tokens is not None and ctx_size is not None else ""
+        ),
         fmt_pct("5h", five),
         fmt_pct("7d", week, int(week_reset) if week_reset is not None else None),
         fmt_pct("Fable", fable, fable_reset),
