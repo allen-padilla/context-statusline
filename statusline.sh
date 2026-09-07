@@ -25,7 +25,7 @@ RESET_FROM="70 90 120";    RESET_TO="110 220 255"
 RESET_RAMP_SECONDS=604800
 
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
-USAGE_TTL_SECONDS=30
+USAGE_TTL_SECONDS=60
 
 input=$(cat)
 
